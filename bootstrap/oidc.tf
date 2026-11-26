@@ -42,7 +42,7 @@ data "aws_iam_policy_document" "plan_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [
+      values = [
         "repo:${var.github_repository}:pull_request",
         "repo:${var.github_repository}:ref:refs/heads/main",
       ]
@@ -167,7 +167,7 @@ data "aws_iam_policy_document" "apply" {
 
   # IAM limité aux rôles et profils préfixés par le projet.
   statement {
-    sid     = "ProjectIamRoles"
+    sid = "ProjectIamRoles"
     actions = [
       "iam:CreateRole", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole", "iam:UpdateAssumeRolePolicy",
       "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy",
