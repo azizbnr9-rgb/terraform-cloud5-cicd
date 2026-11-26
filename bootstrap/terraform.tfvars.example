@@ -1,0 +1,8 @@
+aws_region   = "us-east-1"
+project_name = "cloud5"
+owner        = "votre-nom"
+
+# Compte AWS standard : true pour créer l'OIDC GitHub et les rôles plan/apply.
+# AWS Academy : laisser false (création IAM interdite).
+enable_github_oidc = false
+github_repository  = "votre-compte/terraform-cloud-project"
