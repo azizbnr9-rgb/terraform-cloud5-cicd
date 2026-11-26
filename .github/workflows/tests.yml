@@ -1,0 +1,60 @@
+name: Tests infrastructure
+
+# Tests obligatoires exécutés contre un environnement déployé (journal = preuve).
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environnement testé"
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+      test:
+        description: "Test à exécuter"
+        type: choice
+        options: [all, web, failover, scaling, db-security]
+        default: all
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: "us-east-1"
+  PROJECT_NAME: "cloud5"
+
+jobs:
+  tests:
+    name: Tests (${{ inputs.environment }} / ${{ inputs.test }})
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authentification AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          mask-aws-account-id: true
+
+      - name: Accès Web + répartition
+        if: inputs.test == 'all' || inputs.test == 'web'
+        run: bash scripts/smoke-test.sh "${{ inputs.environment }}" 40
+
+      - name: Sécurité de la base de données
+        if: inputs.test == 'all' || inputs.test == 'db-security'
+        run: bash scripts/db-security-test.sh "${{ inputs.environment }}"
+
+      - name: Panne d'une instance
+        if: inputs.test == 'all' || inputs.test == 'failover'
+        run: bash scripts/failover-test.sh "${{ inputs.environment }}" 240
+
+      - name: Auto Scaling
+        if: inputs.test == 'all' || inputs.test == 'scaling'
+        run: bash scripts/scaling-test.sh "${{ inputs.environment }}" 3

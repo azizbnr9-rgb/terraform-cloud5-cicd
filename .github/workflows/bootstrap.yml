@@ -1,0 +1,44 @@
+name: Bootstrap backend
+
+# Crée le bucket S3 de l'état Terraform (chiffré, versionné, verrouillage natif)
+# avant toute initialisation des environnements. Lancement manuel uniquement.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.10.5"
+  AWS_REGION: "us-east-1"
+  PROJECT_NAME: "cloud5"
+
+jobs:
+  bootstrap:
+    name: Bucket d'état Terraform
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Authentification AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          mask-aws-account-id: true
+
+      - name: Bootstrap
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: bash scripts/bootstrap.sh
