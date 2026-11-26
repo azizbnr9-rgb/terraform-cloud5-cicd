@@ -1,0 +1,298 @@
+name: Terraform CI/CD
+
+# - Pull Request vers main : qualité + plan des 3 environnements, plan publié en commentaire.
+# - Push sur main (branche protégée) : plan puis apply automatique de dev uniquement.
+# - Lancement manuel : plan / apply / destroy d'un environnement choisi.
+#   test et prod sont des environnements GitHub protégés : validation manuelle obligatoire.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "modules/**"
+      - "environments/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "modules/**"
+      - "environments/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environnement ciblé"
+        type: choice
+        options: [dev, test, prod]
+        default: dev
+      action:
+        description: "Action Terraform"
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.event.pull_request.number || github.ref }}-${{ inputs.environment || 'auto' }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.10.5"
+  AWS_REGION: "us-east-1"
+  PROJECT_NAME: "cloud5"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Qualité (fmt, validate, scan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check -recursive
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init (sans backend) + validate
+        run: |
+          for dir in bootstrap environments/dev environments/test environments/prod; do
+            echo "::group::validate $dir"
+            terraform -chdir="$dir" init -backend=false -input=false -no-color
+            terraform -chdir="$dir" validate -no-color
+            echo "::endgroup::"
+          done
+
+      - name: Scan de sécurité IaC (Checkov, informatif)
+        continue-on-error: true
+        run: |
+          pip install --quiet checkov
+          checkov -d . --framework terraform --compact --quiet --soft-fail \
+            --skip-path .github | tee checkov.txt
+          echo "### Checkov (informatif)" >> "$GITHUB_STEP_SUMMARY"
+          grep -E "^(Passed|Failed|Skipped) checks" checkov.txt >> "$GITHUB_STEP_SUMMARY" || true
+
+  # ---------------------------------------------------------------------------
+  targets:
+    name: Environnements ciblés
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.set.outputs.environments }}
+    steps:
+      - id: set
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_ENV: ${{ inputs.environment }}
+        run: |
+          case "$EVENT" in
+            pull_request) envs='["dev","test","prod"]' ;;
+            push)         envs='["dev"]' ;;
+            *)            envs="[\"$INPUT_ENV\"]" ;;
+          esac
+          echo "environments=$envs" >> "$GITHUB_OUTPUT"
+          echo "Environnements ciblés : $envs" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Plan (${{ matrix.environment }})
+    needs: [quality, targets]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJSON(needs.targets.outputs.environments) }}
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.environment }}
+    env:
+      PLAN_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'destroy') && '-destroy' || '' }}
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # Identité fédérée OIDC si AWS_PLAN_ROLE_ARN est défini (compte standard),
+      # sinon identifiants temporaires stockés dans les secrets GitHub (AWS Academy).
+      - name: Authentification AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          mask-aws-account-id: true
+
+      - name: Bucket du backend distant
+        run: |
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          echo "::add-mask::$account_id"
+          echo "TF_STATE_BUCKET=${PROJECT_NAME}-tfstate-${account_id}" >> "$GITHUB_ENV"
+
+      - name: terraform init
+        run: terraform init -input=false -no-color -backend-config="bucket=${TF_STATE_BUCKET}"
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: terraform plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -lock-timeout=120s $PLAN_MODE -out=tfplan -detailed-exitcode
+          code=$?
+          set -e
+          if [ "$code" -eq 1 ]; then exit 1; fi
+          echo "changes=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          terraform show -no-color tfplan > plan.txt
+
+      - name: Publier le plan (artefact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: |
+            environments/${{ matrix.environment }}/tfplan
+            environments/${{ matrix.environment }}/plan.txt
+            environments/${{ matrix.environment }}/.terraform.lock.hcl
+          include-hidden-files: true
+          retention-days: 7
+
+      - name: Résumé du plan
+        run: |
+          {
+            echo "## Plan Terraform : ${{ matrix.environment }} ${PLAN_MODE}"
+            echo
+            grep -E "^Plan:|^No changes|^Changes to Outputs" plan.txt || true
+            echo
+            echo "<details><summary>Plan complet</summary>"
+            echo
+            echo '```'
+            head -c 60000 plan.txt
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commenter la Pull Request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          TF_ENV: ${{ matrix.environment }}
+        with:
+          script: |
+            const fs = require('fs');
+            const env = process.env.TF_ENV;
+            const plan = fs.readFileSync(`environments/${env}/plan.txt`, 'utf8');
+            const summary = (plan.match(/^(Plan:.*|No changes.*)$/m) || ['(voir le plan)'])[0];
+            const marker = `<!-- terraform-plan-${env} -->`;
+            const body = [
+              marker,
+              `### Terraform plan : \`${env}\``,
+              `**${summary}**`,
+              '<details><summary>Afficher le plan</summary>',
+              '',
+              '```hcl',
+              plan.length > 60000 ? plan.slice(0, 60000) + '\n... (tronqué, voir l\'artefact)' : plan,
+              '```',
+              '</details>',
+              '',
+              `Run : ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo, issue_number: context.issue.number,
+            });
+            const previous = comments.find(c => c.body && c.body.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
+
+  # ---------------------------------------------------------------------------
+  apply:
+    name: ${{ inputs.action == 'destroy' && 'Destroy' || 'Apply' }} (${{ matrix.environment }})
+    needs: [targets, plan]
+    # Jamais depuis une branche non protégée : uniquement main, sur push (dev) ou lancement manuel.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.action != 'plan'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJSON(needs.targets.outputs.environments) }}
+    # Environnement GitHub : test et prod exigent l'approbation d'un relecteur.
+    environment:
+      name: ${{ matrix.environment }}
+    defaults:
+      run:
+        working-directory: environments/${{ matrix.environment }}
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Authentification AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          mask-aws-account-id: true
+
+      - name: Bucket du backend distant
+        run: |
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          echo "::add-mask::$account_id"
+          echo "TF_STATE_BUCKET=${PROJECT_NAME}-tfstate-${account_id}" >> "$GITHUB_ENV"
+
+      - name: Récupérer le plan validé
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: environments/${{ matrix.environment }}
+
+      - name: terraform init
+        run: terraform init -input=false -no-color -backend-config="bucket=${TF_STATE_BUCKET}"
+
+      # On applique exactement le plan relu : aucune nouvelle décision n'est prise ici.
+      - name: terraform apply tfplan
+        run: terraform apply -input=false -no-color -lock-timeout=120s tfplan
+
+      - name: Sorties
+        if: inputs.action != 'destroy'
+        run: |
+          {
+            echo "## Sorties : ${{ matrix.environment }}"
+            echo '```'
+            terraform output -no-color | grep -v -E "secret_arn"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
