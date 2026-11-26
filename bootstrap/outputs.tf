@@ -1,6 +1,6 @@
 output "state_bucket" {
   description = "Bucket S3 du backend distant (à passer en -backend-config=bucket=...)."
-  value       = aws_s3_bucket.state.id
+  value       = local.state_bucket_id
 }
 
 output "plan_role_arn" {

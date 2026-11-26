@@ -1,12 +1,16 @@
 data "aws_caller_identity" "current" {}
 
 locals {
-  state_bucket = "${var.project_name}-tfstate-${data.aws_caller_identity.current.account_id}"
+  state_bucket     = "${var.project_name}-tfstate-${data.aws_caller_identity.current.account_id}"
+  state_bucket_id  = var.create_bucket_with_cli ? terraform_data.state_bucket_cli[0].output.bucket : aws_s3_bucket.state[0].id
+  state_bucket_arn = "arn:aws:s3:::${local.state_bucket_id}"
 }
 
 # Bucket de l'état Terraform : chiffré, versionné, privé, TLS obligatoire.
 # Le verrouillage repose sur les fichiers .tflock natifs de S3 (use_lockfile).
 resource "aws_s3_bucket" "state" {
+  count = var.create_bucket_with_cli ? 0 : 1
+
   bucket = local.state_bucket
 
   tags = { Name = local.state_bucket }
@@ -16,8 +20,26 @@ resource "aws_s3_bucket" "state" {
   }
 }
 
+# AWS Academy : bucket créé par l'AWS CLI (voir modules/storage/scripts/s3-bucket.sh).
+resource "terraform_data" "state_bucket_cli" {
+  count = var.create_bucket_with_cli ? 1 : 0
+
+  input = {
+    bucket = local.state_bucket
+    script = "${path.module}/../modules/storage/scripts/s3-bucket.sh"
+  }
+
+  provisioner "local-exec" {
+    command = "bash ${self.input.script} create ${self.input.bucket}"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "state" {
-  bucket = aws_s3_bucket.state.id
+  bucket = local.state_bucket_id
 
   block_public_acls       = true
   block_public_policy     = true
@@ -26,7 +48,7 @@ resource "aws_s3_bucket_public_access_block" "state" {
 }
 
 resource "aws_s3_bucket_ownership_controls" "state" {
-  bucket = aws_s3_bucket.state.id
+  bucket = local.state_bucket_id
 
   rule {
     object_ownership = "BucketOwnerEnforced"
@@ -34,7 +56,7 @@ resource "aws_s3_bucket_ownership_controls" "state" {
 }
 
 resource "aws_s3_bucket_versioning" "state" {
-  bucket = aws_s3_bucket.state.id
+  bucket = local.state_bucket_id
 
   versioning_configuration {
     status = "Enabled"
@@ -42,7 +64,7 @@ resource "aws_s3_bucket_versioning" "state" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
-  bucket = aws_s3_bucket.state.id
+  bucket = local.state_bucket_id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -53,7 +75,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "state" {
-  bucket = aws_s3_bucket.state.id
+  bucket = local.state_bucket_id
 
   rule {
     id     = "expire-old-state-versions"
@@ -74,7 +96,7 @@ data "aws_iam_policy_document" "state" {
     sid       = "DenyInsecureTransport"
     effect    = "Deny"
     actions   = ["s3:*"]
-    resources = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+    resources = [local.state_bucket_arn, "${local.state_bucket_arn}/*"]
 
     principals {
       type        = "*"
@@ -90,7 +112,7 @@ data "aws_iam_policy_document" "state" {
 }
 
 resource "aws_s3_bucket_policy" "state" {
-  bucket = aws_s3_bucket.state.id
+  bucket = local.state_bucket_id
   policy = data.aws_iam_policy_document.state.json
 
   depends_on = [aws_s3_bucket_public_access_block.state]

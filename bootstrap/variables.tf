@@ -21,6 +21,12 @@ variable "state_noncurrent_retention_days" {
   default     = 90
 }
 
+variable "create_bucket_with_cli" {
+  description = "Crée le bucket d'état via l'AWS CLI (AWS Academy : une SCP interdit la lecture de la configuration Object Lock)."
+  type        = bool
+  default     = false
+}
+
 variable "enable_github_oidc" {
   description = "Crée le fournisseur OIDC GitHub et les rôles du pipeline (impossible sur AWS Academy, où la création IAM est bloquée)."
   type        = bool

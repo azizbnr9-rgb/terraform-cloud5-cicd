@@ -187,6 +187,12 @@ variable "force_destroy_buckets" {
   default     = false
 }
 
+variable "create_buckets_with_cli" {
+  description = "Créer les buckets S3 via l'AWS CLI (true sur AWS Academy, où une SCP bloque la lecture Object Lock)."
+  type        = bool
+  default     = false
+}
+
 variable "enable_alb_access_logs" {
   description = "Envoyer les journaux d'accès de l'ALB dans le bucket applicatif."
   type        = bool

@@ -53,6 +53,12 @@ variable "noncurrent_version_expiration_days" {
   default     = 30
 }
 
+variable "create_bucket_with_cli" {
+  description = "Crée le bucket via l'AWS CLI au lieu de aws_s3_bucket (AWS Academy : une SCP interdit la lecture de la configuration Object Lock)."
+  type        = bool
+  default     = false
+}
+
 variable "tags" {
   description = "Tags supplémentaires appliqués aux ressources du module."
   type        = map(string)

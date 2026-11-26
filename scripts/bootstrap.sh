@@ -25,12 +25,12 @@ if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
   echo "Bucket $BUCKET existant : mise à jour avec l'état distant"
   write_backend
   terraform init -input=false
-  terraform apply -input=false -auto-approve -var "owner=${OWNER}" -var "aws_region=${REGION}"
+  terraform apply -input=false -auto-approve -var "owner=${OWNER}" -var "aws_region=${REGION}" -var "create_bucket_with_cli=${CREATE_BUCKET_WITH_CLI:-true}"
 else
   echo "Création du bucket $BUCKET (état local temporaire)"
   rm -f backend.tf
   terraform init -input=false
-  terraform apply -input=false -auto-approve -var "owner=${OWNER}" -var "aws_region=${REGION}"
+  terraform apply -input=false -auto-approve -var "owner=${OWNER}" -var "aws_region=${REGION}" -var "create_bucket_with_cli=${CREATE_BUCKET_WITH_CLI:-true}"
   write_backend
   terraform init -input=false -migrate-state -force-copy
   rm -f terraform.tfstate terraform.tfstate.backup

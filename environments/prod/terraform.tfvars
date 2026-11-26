@@ -32,5 +32,6 @@ db_backup_retention_period = 7
 db_deletion_protection     = true
 
 # Stockage
-force_destroy_buckets  = false
-enable_alb_access_logs = true
+force_destroy_buckets   = false
+enable_alb_access_logs  = true
+create_buckets_with_cli = true

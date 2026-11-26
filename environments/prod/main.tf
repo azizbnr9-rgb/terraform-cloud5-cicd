@@ -40,6 +40,7 @@ module "storage" {
   bucket_suffix           = data.aws_caller_identity.current.account_id
   force_destroy           = var.force_destroy_buckets
   enable_alb_log_delivery = var.enable_alb_access_logs
+  create_bucket_with_cli  = var.create_buckets_with_cli
 }
 
 module "security" {

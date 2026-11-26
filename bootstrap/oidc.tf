@@ -70,20 +70,20 @@ data "aws_iam_policy_document" "plan_state" {
   statement {
     sid       = "ListState"
     actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.state.arn]
+    resources = [local.state_bucket_arn]
   }
 
   statement {
     sid       = "ReadState"
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.state.arn}/*"]
+    resources = ["${local.state_bucket_arn}/*"]
   }
 
   # Le plan pose et retire un verrou, mais ne peut jamais réécrire l'état.
   statement {
     sid       = "LockOnly"
     actions   = ["s3:PutObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.state.arn}/*.tflock"]
+    resources = ["${local.state_bucket_arn}/*.tflock"]
   }
 }
 
@@ -143,7 +143,7 @@ data "aws_iam_policy_document" "apply" {
   statement {
     sid       = "StateReadWrite"
     actions   = ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-    resources = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+    resources = [local.state_bucket_arn, "${local.state_bucket_arn}/*"]
   }
 
   # Services de l'infrastructure, limités à la région du projet.

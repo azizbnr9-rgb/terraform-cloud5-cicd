@@ -1,11 +1,11 @@
 output "bucket_name" {
   description = "Nom du bucket applicatif (assets, journaux, sauvegardes)."
-  value       = aws_s3_bucket.this.id
+  value       = local.bucket_id
 }
 
 output "bucket_arn" {
   description = "ARN du bucket applicatif."
-  value       = aws_s3_bucket.this.arn
+  value       = local.bucket_arn
 }
 
 output "alb_logs_prefix" {

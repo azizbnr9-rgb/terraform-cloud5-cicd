@@ -37,8 +37,9 @@ db_backup_retention_period = 1
 db_deletion_protection     = false
 
 # Stockage
-force_destroy_buckets  = true
-enable_alb_access_logs = true
+force_destroy_buckets   = true
+enable_alb_access_logs  = true
+create_buckets_with_cli = false # true sur AWS Academy
 
 # HTTPS (optionnel) : ARN d'un certificat ACM validé
 # certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxx"
