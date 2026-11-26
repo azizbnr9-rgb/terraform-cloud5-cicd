@@ -3,7 +3,7 @@
 # et les identifiants AWS viennent du pipeline ou de l'environnement local.
 
 aws_region   = "us-east-1"
-project_name = "cloud5"
+project_name = "cloud5cicd"
 environment  = "dev"
 owner        = "azizbnr9-rgb"
 

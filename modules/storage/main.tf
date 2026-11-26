@@ -24,6 +24,9 @@ resource "aws_s3_bucket" "this" {
 resource "terraform_data" "bucket_cli" {
   count = var.create_bucket_with_cli ? 1 : 0
 
+  # Un nouveau nom de bucket entraîne la recréation (et l'exécution des provisioners).
+  triggers_replace = local.bucket_name
+
   input = {
     bucket        = local.bucket_name
     force_destroy = var.force_destroy

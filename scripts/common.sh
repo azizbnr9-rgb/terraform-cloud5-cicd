@@ -2,7 +2,7 @@
 # Fonctions communes aux scripts de test. Usage : source scripts/common.sh <env>
 set -euo pipefail
 ENVIRONMENT="${1:-dev}"
-PROJECT="${PROJECT_NAME:-cloud5}"
+PROJECT="${PROJECT_NAME:-cloud5cicd}"
 PREFIX="${PROJECT}-${ENVIRONMENT}"
 export AWS_REGION="${AWS_REGION:-us-east-1}"
 
