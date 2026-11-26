@@ -1,0 +1,38 @@
+# Répertoires et fichiers locaux Terraform
+**/.terraform/*
+.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Backend généré localement par scripts/bootstrap.sh
+bootstrap/backend.tf
+
+# Variables pouvant contenir des secrets (seuls terraform.tfvars sans secret et *.example sont versionnés)
+*.secret.tfvars
+*.auto.tfvars
+*.tfvars.json
+secrets/
+
+# Identifiants
+.aws/
+*.pem
+*.key
+.env
+.env.*
+
+# Divers
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
